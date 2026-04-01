@@ -45,9 +45,15 @@ export default function App() {
     )
   }
 
-  // No valid license
+  // No valid license — show activation screen
+  // Admin can bypass via Ctrl+Shift+A secret shortcut → login → go straight to admin dashboard
   if (!license) {
-    return <LicenseScreen onActivated={info => setLicense({ valid: true, ...info })} />
+    return (
+      <LicenseScreen
+        onActivated={info => setLicense({ valid: true, ...info })}
+        onAdminBypass={() => { setAdminAuthed(true); setLicense({ valid: true, admin: true }); setScreen('admin') }}
+      />
+    )
   }
 
   return (

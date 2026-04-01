@@ -7,9 +7,9 @@
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron .\"",
     "build": "vite build",
     "dist": "vite build && electron-builder",
-    "dist:win": "vite build && electron-builder --win",
+    "dist:win": "cp node_modules/better-sqlite3/build/Release/better_sqlite3.node /tmp/sqlite3_linux_backup.node && vite build && electron-builder --win ; cp /tmp/sqlite3_linux_backup.node node_modules/better-sqlite3/build/Release/better_sqlite3.node",
     "seed": "node questions/seed.js",
-    "postinstall": "npx electron-rebuild -f -w better-sqlite3"
+    "postinstall": "env -u ELECTRON_RUN_AS_NODE npx @electron/rebuild -f -w better-sqlite3"
   },
   "build": {
     "appId": "com.logicyte.jambcbt",
@@ -18,8 +18,11 @@
     "icon": "public/icon.png",
     "files": [
       "dist/**/*",
-      "electron/**/*",
-      "questions/jamb.db"
+      "electron/**/*"
+    ],
+    "extraResources": [
+      { "from": "questions/jamb.db", "to": "jamb.db" },
+      { "from": "questions/diagrams", "to": "diagrams" }
     ],
     "win": {
       "target": [

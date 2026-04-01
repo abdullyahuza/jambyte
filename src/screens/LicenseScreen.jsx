@@ -1,11 +1,23 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import AdminLoginScreen from './AdminLoginScreen.jsx'
 
-export default function LicenseScreen({ onActivated }) {
+export default function LicenseScreen({ onActivated, onAdminBypass }) {
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showAdminLogin, setShowAdminLogin] = useState(false)
+
+  // Secret shortcut: Ctrl+Shift+A opens admin login
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+        e.preventDefault()
+        setShowAdminLogin(true)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   const activate = async () => {
     const trimmed = code.trim().toUpperCase()
@@ -20,7 +32,7 @@ export default function LicenseScreen({ onActivated }) {
   if (showAdminLogin) {
     return (
       <AdminLoginScreen
-        onSuccess={() => setShowAdminLogin(false)}
+        onSuccess={onAdminBypass}
         onCancel={() => setShowAdminLogin(false)}
         onActivated={onActivated}
         fromLicense
@@ -52,9 +64,6 @@ export default function LicenseScreen({ onActivated }) {
         {error && <div style={s.error}>{error}</div>}
         <button style={s.btn} onClick={activate} disabled={loading}>
           {loading ? 'Validating…' : 'Activate'}
-        </button>
-        <button style={s.adminLink} onClick={() => setShowAdminLogin(true)}>
-          Admin login
         </button>
         <div style={s.copyright}>© {new Date().getFullYear()} Logicyte Technologies</div>
       </div>
@@ -90,11 +99,7 @@ const s = {
   btn: {
     width: '100%', padding: '14px', background: '#006633', color: '#fff',
     fontWeight: '700', fontSize: '15px', border: 'none', borderRadius: '8px',
-    cursor: 'pointer', marginBottom: '12px',
-  },
-  adminLink: {
-    background: 'none', border: 'none', color: '#aaa', fontSize: '12px',
-    cursor: 'pointer', marginBottom: '20px', textDecoration: 'underline',
+    cursor: 'pointer', marginBottom: '24px',
   },
   copyright: { fontSize: '11px', color: '#aaa' },
 }

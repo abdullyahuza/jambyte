@@ -60,9 +60,19 @@ function shuffleOptions(options, answer) {
 }
 
 const isDev = !app.isPackaged
-const DB_PATH = isDev
-  ? path.join(__dirname, '../questions/jamb.db')
-  : path.join(process.resourcesPath, 'jamb.db')
+
+function getDbPath() {
+  if (isDev) return path.join(__dirname, '../questions/jamb.db')
+  // In production: use a writable copy in AppData/userData.
+  // On first launch, seed it from the read-only bundled copy in resources/.
+  const userDb = path.join(app.getPath('userData'), 'jamb.db')
+  if (!fs.existsSync(userDb)) {
+    fs.copyFileSync(path.join(process.resourcesPath, 'jamb.db'), userDb)
+  }
+  return userDb
+}
+
+const DB_PATH = getDbPath()
 
 let db
 
@@ -301,14 +311,27 @@ ipcMain.handle('admin-add-year', (event, year) => {
 })
 
 function getDiagramsDir() {
-  return isDev
-    ? path.join(__dirname, '../questions/diagrams')
-    : path.join(process.resourcesPath, 'diagrams')
+  if (isDev) return path.join(__dirname, '../questions/diagrams')
+  // Admin-uploaded images go to writable userData/diagrams.
+  // Bundled diagrams from resources/ are also checked in get-diagram below.
+  const dir = path.join(app.getPath('userData'), 'diagrams')
+  fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+function getBundledDiagramsDir() {
+  return path.join(process.resourcesPath, 'diagrams')
 }
 
 ipcMain.handle('get-diagram', (event, imagePath) => {
-  const fullPath = path.join(getDiagramsDir(), path.basename(imagePath))
-  if (!fs.existsSync(fullPath)) return null
+  const name = path.basename(imagePath)
+  // Check userData/diagrams first (admin-uploaded), then bundled resources/diagrams
+  const candidates = [
+    path.join(getDiagramsDir(), name),
+    ...(isDev ? [] : [path.join(getBundledDiagramsDir(), name)]),
+  ]
+  const fullPath = candidates.find(p => fs.existsSync(p))
+  if (!fullPath) return null
   const ext = path.extname(fullPath).toLowerCase()
   const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.gif' ? 'image/gif' : ext === '.webp' ? 'image/webp' : 'image/png'
   return `data:${mime};base64,` + fs.readFileSync(fullPath).toString('base64')
