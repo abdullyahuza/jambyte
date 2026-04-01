@@ -9,7 +9,7 @@ jobs:
     runs-on: windows-latest
 
     env:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      GH_TOKEN: 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
 
     steps:
       - name: Checkout repo
