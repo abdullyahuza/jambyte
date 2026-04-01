@@ -1,0 +1,50 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --jamb-green: #006633;
+  --jamb-light-green: #009944;
+  --jamb-gold: #FFD700;
+  --jamb-red: #cc0000;
+  --bg: #f0f2f5;
+  --white: #ffffff;
+  --text: #1a1a1a;
+  --border: #d0d7de;
+  --answered: #006633;
+  --flagged: #e67e22;
+  --unanswered: #ccc;
+}
+
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

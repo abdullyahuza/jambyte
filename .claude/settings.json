@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"require\\(''''./electron/main.js''''\\)\")",
+      "Bash(npx --yes acorn --ecma2020 --module src/screens/AdminScreen.jsx)",
+      "Bash(npx vite:*)",
+      "Bash(npx @electron/rebuild -f -w better-sqlite3)"
+    ],
+    "additionalDirectories": [
+      "/home/abdullyahuza/jamb-cbt/questions"
+    ]
+  }
+}
