@@ -3,6 +3,7 @@ name: Build Electron Windows App
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:   # allow manual trigger from GitHub UI
 
 jobs:
   build:
@@ -18,19 +19,20 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        # Skip postinstall (electron-rebuild) — electron-builder handles
+        # native module rebuild for the correct Electron ABI automatically
+        run: npm install --ignore-scripts
 
-      - name: Rebuild native modules
-        run: npx electron-rebuild -f -w better-sqlite3
-
-      - name: Build app
-        # Define the env here to ensure electron-builder sees it
+      - name: Build app (Vite + electron-builder)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run dist
 
-      - name: Upload build artifact
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build
-          path: dist/
+          name: JAMB-CBT-Windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error

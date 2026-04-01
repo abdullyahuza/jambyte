@@ -353,16 +353,25 @@ ipcMain.handle('admin-login', (event, { username, password }) => {
 // ── License IPC ───────────────────────────────────────────────────────────────
 ipcMain.handle('check-license', () => {
   try {
-    const row = getDb().prepare(
-      `SELECT * FROM licenses ORDER BY expiry DESC LIMIT 1`
-    ).get()
+    const d = getDb()
+    // Ensure table exists before querying
+    d.exec(`
+      CREATE TABLE IF NOT EXISTS licenses (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        code    TEXT NOT NULL UNIQUE,
+        expiry  TEXT NOT NULL,
+        activated_at TEXT NOT NULL
+      )
+    `)
+    const row = d.prepare(`SELECT * FROM licenses ORDER BY expiry DESC LIMIT 1`).get()
     if (!row) return { valid: false, reason: 'no_license' }
     const today = new Date(); today.setHours(0, 0, 0, 0)
     const expiry = new Date(row.expiry)
     if (expiry < today) return { valid: false, reason: 'expired', expiry: row.expiry }
     const daysLeft = Math.ceil((expiry - today) / 86400000)
     return { valid: true, expiry: row.expiry, daysLeft }
-  } catch {
+  } catch (e) {
+    console.error('check-license error:', e.message)
     return { valid: false, reason: 'no_license' }
   }
 })
@@ -372,12 +381,23 @@ ipcMain.handle('activate-license', (event, code) => {
   if (!result) return { error: 'Invalid license code' }
   if (result.expired) return { error: `License code expired on ${result.expiryDate.toLocaleDateString()}` }
   try {
-    getDb().prepare(
+    const d = getDb()
+    // Ensure table exists (in case migration was skipped on older DB)
+    d.exec(`
+      CREATE TABLE IF NOT EXISTS licenses (
+        id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        code    TEXT NOT NULL UNIQUE,
+        expiry  TEXT NOT NULL,
+        activated_at TEXT NOT NULL
+      )
+    `)
+    d.prepare(
       `INSERT OR REPLACE INTO licenses (code, expiry, activated_at) VALUES (?, ?, ?)`
     ).run(code.toUpperCase().trim(), result.expiryDate.toISOString().split('T')[0], new Date().toISOString())
     return { ok: true, expiry: result.expiryDate.toISOString().split('T')[0], daysLeft: result.daysLeft }
-  } catch {
-    return { error: 'Failed to save license' }
+  } catch (e) {
+    console.error('activate-license error:', e.message)
+    return { error: `Failed to save license: ${e.message}` }
   }
 })
 

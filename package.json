@@ -7,6 +7,7 @@
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron .\"",
     "build": "vite build",
     "dist": "vite build && electron-builder",
+    "dist:win": "vite build && electron-builder --win",
     "seed": "node questions/seed.js",
     "postinstall": "npx electron-rebuild -f -w better-sqlite3"
   },
@@ -21,7 +22,10 @@
       "questions/jamb.db"
     ],
     "win": {
-      "target": "nsis",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "zip", "arch": ["x64"] }
+      ],
       "icon": "public/icon.ico"
     },
     "linux": {
