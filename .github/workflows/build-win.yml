@@ -1,18 +1,33 @@
-name: Build Electron App
+name: Build Electron Windows App
 
-on: [push]
+on:
+  push:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Setup Node
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
-      - run: npm install
-      - run: npm run dist
+      - name: Install dependencies
+        run: npm install
+
+      - name: Rebuild native modules
+        run: npx electron-rebuild -f -w better-sqlite3
+
+      - name: Build app
+        run: npm run dist
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/
