@@ -1,4 +1,14 @@
-steps:
+name: Build Electron Windows App
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
