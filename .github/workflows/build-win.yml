@@ -1,17 +1,4 @@
-name: Build Electron Windows App
-
-on:
-  push:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: windows-latest
-
-    env:
-      GH_TOKEN: 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
-
-    steps:
+steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
@@ -27,6 +14,9 @@ jobs:
         run: npx electron-rebuild -f -w better-sqlite3
 
       - name: Build app
+        # Define the env here to ensure electron-builder sees it
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: npm run dist
 
       - name: Upload build artifact
