@@ -3,6 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const crypto = require('crypto')
 const Database = require('better-sqlite3')
+const sb = require('./supabase')
 
 // ── License helpers ───────────────────────────────────────────────────────────
 const APP_SECRET = 'LOGICYTE_CBT_JAMB_2024_X7K9'
@@ -14,19 +15,6 @@ function generateLicenseCode(expiryDateStr) {
   return `${encoded}-${hmac}`
 }
 
-function validateLicenseCode(code) {
-  const parts = code.toUpperCase().trim().split('-')
-  if (parts.length !== 2) return null
-  const [encoded, hmac] = parts
-  const expected = crypto.createHmac('sha256', APP_SECRET).update(encoded).digest('hex').slice(0, 6).toUpperCase()
-  if (hmac !== expected) return null
-  const daysSinceEpoch = parseInt(encoded, 36)
-  if (isNaN(daysSinceEpoch)) return null
-  const expiryDate = new Date(daysSinceEpoch * 86400000)
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  if (expiryDate < today) return { expired: true, expiryDate }
-  return { expired: false, expiryDate, daysLeft: Math.ceil((expiryDate - today) / 86400000) }
-}
 
 // ── Options shuffler ─────────────────────────────────────────────────────────
 // Options are stored as arrays: ["A. text", "B. text", "C. text", "D. text"]
@@ -104,15 +92,20 @@ function getDb() {
     // Seed subjects/years from existing questions so existing DBs work
     db.prepare(`INSERT OR IGNORE INTO subjects (name) SELECT DISTINCT subject FROM questions`).run()
     db.prepare(`INSERT OR IGNORE INTO years (year) SELECT DISTINCT year FROM questions WHERE year IS NOT NULL`).run()
-    // License table
+    // License table — create if new, then migrate older schemas
     db.exec(`
       CREATE TABLE IF NOT EXISTS licenses (
-        id      INTEGER PRIMARY KEY AUTOINCREMENT,
-        code    TEXT NOT NULL UNIQUE,
-        expiry  TEXT NOT NULL,
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        code         TEXT NOT NULL UNIQUE,
+        machine_id   TEXT NOT NULL DEFAULT '',
+        expiry       TEXT NOT NULL,
+        last_online  TEXT NOT NULL DEFAULT '',
         activated_at TEXT NOT NULL
       )
     `)
+    const licCols = db.prepare('PRAGMA table_info(licenses)').all().map(c => c.name)
+    if (!licCols.includes('machine_id'))  db.exec(`ALTER TABLE licenses ADD COLUMN machine_id  TEXT NOT NULL DEFAULT ''`)
+    if (!licCols.includes('last_online')) db.exec(`ALTER TABLE licenses ADD COLUMN last_online TEXT NOT NULL DEFAULT ''`)
   }
   return db
 }
@@ -369,66 +362,142 @@ const ADMIN_PASS_HASH = crypto.createHash('sha256').update('cbt++').digest('hex'
 
 ipcMain.handle('admin-login', (event, { username, password }) => {
   const passHash = crypto.createHash('sha256').update(password).digest('hex')
-  if (username === ADMIN_USER && passHash === ADMIN_PASS_HASH) return { ok: true }
-  return { error: 'Invalid username or password' }
+  if (username !== ADMIN_USER || passHash !== ADMIN_PASS_HASH) {
+    return { error: 'Invalid username or password' }
+  }
+  // Auto-activate this device for 7 days (admin devices don't need Supabase)
+  try {
+    const machineId = sb.getMachineId()
+    const expiry = new Date()
+    expiry.setDate(expiry.getDate() + 7)
+    const expiryStr = expiry.toISOString().split('T')[0]
+    saveCachedLicense('ADMIN-DEVICE', machineId, expiryStr)
+  } catch (e) {
+    console.warn('admin-login: could not save local license:', e.message)
+  }
+  return { ok: true }
 })
 
+// ── Local license cache helpers ───────────────────────────────────────────────
+function ensureLicenseTable() {
+  getDb().exec(`
+    CREATE TABLE IF NOT EXISTS licenses (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      code         TEXT NOT NULL UNIQUE,
+      machine_id   TEXT NOT NULL,
+      expiry       TEXT NOT NULL,
+      last_online  TEXT NOT NULL,
+      activated_at TEXT NOT NULL
+    )
+  `)
+}
+
+function getCachedLicense() {
+  ensureLicenseTable()
+  return getDb().prepare(`SELECT * FROM licenses ORDER BY activated_at DESC LIMIT 1`).get()
+}
+
+function saveCachedLicense(code, machineId, expiry) {
+  ensureLicenseTable()
+  const now = new Date().toISOString()
+  getDb().prepare(`
+    INSERT OR REPLACE INTO licenses (code, machine_id, expiry, last_online, activated_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(code, machineId, expiry, now, now)
+}
+
+function updateLastOnline(code) {
+  ensureLicenseTable()
+  getDb().prepare(`UPDATE licenses SET last_online = ? WHERE code = ?`)
+    .run(new Date().toISOString(), code)
+}
+
 // ── License IPC ───────────────────────────────────────────────────────────────
-ipcMain.handle('check-license', () => {
+ipcMain.handle('check-license', async () => {
   try {
-    const d = getDb()
-    // Ensure table exists before querying
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS licenses (
-        id      INTEGER PRIMARY KEY AUTOINCREMENT,
-        code    TEXT NOT NULL UNIQUE,
-        expiry  TEXT NOT NULL,
-        activated_at TEXT NOT NULL
-      )
-    `)
-    const row = d.prepare(`SELECT * FROM licenses ORDER BY expiry DESC LIMIT 1`).get()
-    if (!row) return { valid: false, reason: 'no_license' }
+    const cached = getCachedLicense()
+    if (!cached) return { valid: false, reason: 'no_license' }
+
     const today = new Date(); today.setHours(0, 0, 0, 0)
-    const expiry = new Date(row.expiry)
-    if (expiry < today) return { valid: false, reason: 'expired', expiry: row.expiry }
+    const expiry = new Date(cached.expiry)
+
+    // If Supabase is configured, try online revalidation
+    if (sb.isConfigured()) {
+      const online = await sb.revalidateOnline(cached.code, cached.machine_id)
+      if (online) {
+        // Got a response — trust it
+        if (!online.valid) return { valid: false, reason: online.reason || 'revoked' }
+        updateLastOnline(cached.code)
+        // Update expiry in case admin extended it
+        getDb().prepare(`UPDATE licenses SET expiry = ? WHERE code = ?`).run(online.expiry, cached.code)
+        return { valid: true, expiry: online.expiry, daysLeft: online.daysLeft }
+      }
+      // No response = offline — apply grace period
+      const lastOnline = new Date(cached.last_online)
+      const daysSinceOnline = Math.floor((Date.now() - lastOnline.getTime()) / 86400000)
+      if (daysSinceOnline > sb.GRACE_DAYS) {
+        return { valid: false, reason: 'grace_expired', daysSinceOnline }
+      }
+    }
+
+    // Offline or Supabase not configured — check local expiry
+    if (expiry < today) return { valid: false, reason: 'expired', expiry: cached.expiry }
     const daysLeft = Math.ceil((expiry - today) / 86400000)
-    return { valid: true, expiry: row.expiry, daysLeft }
+    return { valid: true, expiry: cached.expiry, daysLeft, offline: sb.isConfigured() }
   } catch (e) {
     console.error('check-license error:', e.message)
     return { valid: false, reason: 'no_license' }
   }
 })
 
-ipcMain.handle('activate-license', (event, code) => {
-  const result = validateLicenseCode(code)
-  if (!result) return { error: 'Invalid license code' }
-  if (result.expired) return { error: `License code expired on ${result.expiryDate.toLocaleDateString()}` }
+ipcMain.handle('activate-license', async (event, code) => {
+  const trimmed = code.toUpperCase().trim()
+
+  if (!sb.isConfigured()) {
+    return { error: 'Activation requires an internet connection. Please connect and try again.' }
+  }
+
   try {
-    const d = getDb()
-    // Ensure table exists (in case migration was skipped on older DB)
-    d.exec(`
-      CREATE TABLE IF NOT EXISTS licenses (
-        id      INTEGER PRIMARY KEY AUTOINCREMENT,
-        code    TEXT NOT NULL UNIQUE,
-        expiry  TEXT NOT NULL,
-        activated_at TEXT NOT NULL
-      )
-    `)
-    d.prepare(
-      `INSERT OR REPLACE INTO licenses (code, expiry, activated_at) VALUES (?, ?, ?)`
-    ).run(code.toUpperCase().trim(), result.expiryDate.toISOString().split('T')[0], new Date().toISOString())
-    return { ok: true, expiry: result.expiryDate.toISOString().split('T')[0], daysLeft: result.daysLeft }
+    const result = await sb.activateOnline(trimmed)
+    if (result.error) return { error: result.error }
+    saveCachedLicense(trimmed, result.machineId, result.expiry)
+    return { ok: true, expiry: result.expiry, daysLeft: result.daysLeft }
   } catch (e) {
-    console.error('activate-license error:', e.message)
-    return { error: `Failed to save license: ${e.message}` }
+    return { error: 'Could not reach the activation server. Please check your internet connection and try again.' }
   }
 })
 
-ipcMain.handle('generate-license', (event, expiryDateStr) => {
-  if (!expiryDateStr) return { error: 'Expiry date required' }
-  const d = new Date(expiryDateStr)
-  if (isNaN(d.getTime())) return { error: 'Invalid date' }
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  if (d < today) return { error: 'Expiry date must be in the future' }
-  return { code: generateLicenseCode(expiryDateStr) }
+ipcMain.handle('generate-license', async (event, { note } = {}) => {
+  // All licenses are valid for exactly 1 month from today
+  const expiry = new Date()
+  expiry.setMonth(expiry.getMonth() + 1)
+  const expiryDateStr = expiry.toISOString().split('T')[0]
+
+  const code = generateLicenseCode(expiryDateStr)
+
+  if (sb.isConfigured()) {
+    const result = await sb.createLicenseOnline(code, expiryDateStr, 1, note || '')
+    if (result.error) console.warn('createLicenseOnline:', result.error)
+  }
+
+  return { code, expiry: expiryDateStr }
+})
+
+ipcMain.handle('list-licenses', async () => {
+  if (!sb.isConfigured()) return { error: 'Supabase not configured' }
+  try {
+    return { licenses: await sb.listLicensesOnline() }
+  } catch (e) {
+    return { error: e.message }
+  }
+})
+
+ipcMain.handle('revoke-activation', async (event, activationId) => {
+  if (!sb.isConfigured()) return { error: 'Supabase not configured' }
+  try {
+    await sb.revokeActivation(activationId)
+    return { ok: true }
+  } catch (e) {
+    return { error: e.message }
+  }
 })

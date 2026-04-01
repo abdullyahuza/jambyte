@@ -7,6 +7,14 @@ export default function HomeScreen({ navigate, license }) {
     window.electronAPI.getResults().then(setResults)
   }, [])
 
+  useEffect(() => {
+    const handler = e => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'A') navigate('admin')
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [navigate])
+
   const licenseColor = license?.daysLeft <= 3 ? '#ff6b6b' : license?.daysLeft <= 7 ? '#FFD700' : '#4cff91'
 
   return (
@@ -62,9 +70,6 @@ export default function HomeScreen({ navigate, license }) {
           <span>JAMB CBT Practice v1.0</span>
           <span style={styles.copyright}>© {new Date().getFullYear()} Logicyte Technologies</span>
         </div>
-        <button style={styles.adminBtn} onClick={() => navigate('admin')}>
-          ⚙ Admin
-        </button>
       </div>
     </div>
   )
@@ -102,5 +107,4 @@ const styles = {
   footer: { marginTop: 'auto', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '16px', width: '100%', maxWidth: '600px', justifyContent: 'space-between' },
   footerLeft: { display: 'flex', flexDirection: 'column', gap: '2px', opacity: 0.6 },
   copyright: { fontSize: '11px' },
-  adminBtn: { background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', padding: '4px 14px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer', opacity: 0.7 },
 }

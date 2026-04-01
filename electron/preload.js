@@ -25,5 +25,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // License
   checkLicense: () => ipcRenderer.invoke('check-license'),
   activateLicense: (code) => ipcRenderer.invoke('activate-license', code),
-  generateLicense: (expiry) => ipcRenderer.invoke('generate-license', expiry),
+  generateLicense: (opts) => ipcRenderer.invoke('generate-license', opts),
+  listLicenses: () => ipcRenderer.invoke('list-licenses'),
+  revokeActivation: (id) => ipcRenderer.invoke('revoke-activation', id),
 })

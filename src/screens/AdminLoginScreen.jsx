@@ -10,11 +10,9 @@ export default function AdminLoginScreen({ onSuccess, onCancel, onActivated, fro
   const [loggedIn, setLoggedIn] = useState(false)
 
   // License generator state (used when fromLicense=true)
-  const [expiryDate, setExpiryDate] = useState('')
   const [generatedCode, setGeneratedCode] = useState('')
+  const [generatedExpiry, setGeneratedExpiry] = useState('')
   const [genError, setGenError] = useState('')
-  const [activating, setActivating] = useState(false)
-  const [activateError, setActivateError] = useState('')
 
   const login = async () => {
     if (!username || !password) { setError('Enter username and password.'); return }
@@ -24,9 +22,6 @@ export default function AdminLoginScreen({ onSuccess, onCancel, onActivated, fro
     if (result.error) { setError(result.error); return }
     if (fromLicense) {
       setLoggedIn(true)
-      // Default expiry = 7 days
-      const d = new Date(); d.setDate(d.getDate() + 7)
-      setExpiryDate(d.toISOString().split('T')[0])
     } else {
       onSuccess()
     }
@@ -34,17 +29,10 @@ export default function AdminLoginScreen({ onSuccess, onCancel, onActivated, fro
 
   const generate = async () => {
     setGenError(''); setGeneratedCode(''); setActivateError('')
-    const res = await window.electronAPI.generateLicense(expiryDate)
+    const res = await window.electronAPI.generateLicense({ note: '' })
     if (res.error) { setGenError(res.error); return }
     setGeneratedCode(res.code)
-  }
-
-  const activateAndContinue = async () => {
-    setActivating(true); setActivateError('')
-    const res = await window.electronAPI.activateLicense(generatedCode)
-    setActivating(false)
-    if (res.error) { setActivateError(res.error); return }
-    onActivated({ expiry: res.expiry, daysLeft: res.daysLeft })
+    setGeneratedExpiry(res.expiry)
   }
 
   // ── Login form ────────────────────────────────────────────────────────────
@@ -85,41 +73,31 @@ export default function AdminLoginScreen({ onSuccess, onCancel, onActivated, fro
   // ── License generator (shown after admin login from license screen) ────────
   return (
     <div style={s.fullPage}>
-      <div style={{ ...s.card, width: '480px' }}>
+      <div style={{ ...s.card, width: '420px' }}>
         <h2 style={s.title}>Generate Activation Code</h2>
-        <p style={s.desc}>Pick an expiry date, generate a code, then activate this device.</p>
+        <p style={s.desc}>Generate a 30-day code to share with a student. This device is already unlocked as admin.</p>
 
-        <label style={s.label}>Expiry Date</label>
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          <input
-            type="date"
-            style={{ ...s.input, marginBottom: 0, flex: 1 }}
-            value={expiryDate}
-            min={new Date().toISOString().split('T')[0]}
-            onChange={e => { setExpiryDate(e.target.value); setGeneratedCode(''); setGenError('') }}
-          />
-          <button style={s.loginBtn} onClick={generate}>Generate</button>
-        </div>
         {genError && <div style={s.error}>{genError}</div>}
 
-        {generatedCode && (
+        {!generatedCode ? (
+          <button style={{ ...s.loginBtn, width: '100%' }} onClick={generate}>
+            Generate 30-Day Code
+          </button>
+        ) : (
           <div style={s.codeBox}>
-            <div style={s.codeLabel}>Activation Code</div>
+            <div style={s.codeLabel}>Activation Code — Valid 30 Days</div>
             <div style={s.code}>{generatedCode}</div>
-            <div style={s.codeNote}>Valid until {expiryDate}</div>
-            {activateError && <div style={{ ...s.error, marginTop: '8px' }}>{activateError}</div>}
-            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-              <button style={s.cancelBtn} onClick={() => navigator.clipboard.writeText(generatedCode)}>
-                Copy Code
-              </button>
-              <button style={s.loginBtn} onClick={activateAndContinue} disabled={activating}>
-                {activating ? 'Activating…' : 'Activate This Device'}
-              </button>
-            </div>
+            <div style={s.codeNote}>Expires {generatedExpiry}</div>
+            <p style={{ fontSize: '12px', color: '#555', marginTop: '8px' }}>
+              Share this code with the student to activate their device.
+            </p>
+            <button style={{ ...s.cancelBtn, marginTop: '8px', width: '100%' }} onClick={() => navigator.clipboard.writeText(generatedCode)}>
+              Copy Code
+            </button>
           </div>
         )}
 
-        <button style={{ ...s.cancelBtn, marginTop: '16px', width: '100%' }} onClick={onCancel}>
+        <button style={{ ...s.cancelBtn, marginTop: '12px', width: '100%' }} onClick={onCancel}>
           Back
         </button>
       </div>

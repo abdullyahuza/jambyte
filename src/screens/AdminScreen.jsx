@@ -612,96 +612,149 @@ function SubjectsYearsTab() {
 // ── Main Admin Screen ─────────────────────────────────────────────────────────
 // ── License Tab ───────────────────────────────────────────────────────────────
 function LicenseTab() {
-  const [expiryDate, setExpiryDate] = useState('')
+  const [note, setNote] = useState('')
   const [generatedCode, setGeneratedCode] = useState('')
+  const [generatedExpiry, setGeneratedExpiry] = useState('')
   const [genError, setGenError] = useState('')
+  const [generating, setGenerating] = useState(false)
   const [currentLicense, setCurrentLicense] = useState(null)
+  const [licenses, setLicenses] = useState([])
+  const [loadingList, setLoadingList] = useState(false)
+  const [listError, setListError] = useState('')
+  const [revoking, setRevoking] = useState(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     window.electronAPI.checkLicense().then(setCurrentLicense)
+    loadLicenses()
   }, [])
 
+  const loadLicenses = async () => {
+    setLoadingList(true); setListError('')
+    const res = await window.electronAPI.listLicenses()
+    setLoadingList(false)
+    if (res.error) { setListError(res.error); return }
+    setLicenses(res.licenses || [])
+  }
+
   const generate = async () => {
-    setGenError(''); setGeneratedCode('')
-    const res = await window.electronAPI.generateLicense(expiryDate)
+    setGenError(''); setGeneratedCode(''); setGenerating(true)
+    const res = await window.electronAPI.generateLicense({ note })
+    setGenerating(false)
     if (res.error) { setGenError(res.error); return }
     setGeneratedCode(res.code)
+    setGeneratedExpiry(res.expiry)
+    setNote('')
+    loadLicenses()
   }
 
   const copyCode = () => {
     navigator.clipboard.writeText(generatedCode)
+    setCopied(true); setTimeout(() => setCopied(false), 2000)
   }
 
-  // Default expiry = 7 days from today
-  const defaultExpiry = () => {
-    const d = new Date(); d.setDate(d.getDate() + 7)
-    return d.toISOString().split('T')[0]
+  const revoke = async (activationId) => {
+    setRevoking(activationId)
+    await window.electronAPI.revokeActivation(activationId)
+    setRevoking(null)
+    loadLicenses()
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '600px' }}>
-      <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#1a1a1a', marginBottom: '6px' }}>License Management</h2>
-      <p style={{ fontSize: '13px', color: '#666', marginBottom: '24px' }}>
-        Generate activation codes to distribute to users. Each code is valid until the chosen expiry date.
+    <div style={{ padding: '24px', maxWidth: '800px', overflowY: 'auto' }}>
+      <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#1a1a1a', marginBottom: '4px' }}>License Management</h2>
+      <p style={{ fontSize: '13px', color: '#666', marginBottom: '20px' }}>
+        Each code activates one device for <strong>30 days</strong>. Generate a code and share it with the user.
       </p>
 
+      {/* This device status */}
       {currentLicense && (
-        <div style={{ background: currentLicense.valid ? '#e8f5e9' : '#fff3cd', border: `1px solid ${currentLicense.valid ? '#a5d6a7' : '#ffc107'}`, borderRadius: '8px', padding: '14px 18px', marginBottom: '24px', fontSize: '14px', color: currentLicense.valid ? '#2e7d32' : '#856404' }}>
+        <div style={{ background: currentLicense.valid ? '#e8f5e9' : '#fff3cd', border: `1px solid ${currentLicense.valid ? '#a5d6a7' : '#ffc107'}`, borderRadius: '8px', padding: '12px 16px', marginBottom: '20px', fontSize: '13px', color: currentLicense.valid ? '#2e7d32' : '#856404' }}>
           {currentLicense.valid
-            ? `✓ Active license — expires ${currentLicense.expiry} (${currentLicense.daysLeft} day${currentLicense.daysLeft !== 1 ? 's' : ''} left)`
-            : `⚠ No active license on this device (${currentLicense.reason === 'expired' ? 'expired' : 'not activated'})`}
+            ? `✓ This device is licensed — expires ${currentLicense.expiry} · ${currentLicense.daysLeft} day${currentLicense.daysLeft !== 1 ? 's' : ''} left${currentLicense.offline ? ' (offline mode)' : ''}`
+            : `⚠ This device: ${currentLicense.reason === 'expired' ? 'license expired' : currentLicense.reason === 'grace_expired' ? `offline too long (${currentLicense.daysSinceOnline}d)` : 'not activated'}`}
         </div>
       )}
 
-      <div style={{ background: '#fff', borderRadius: '10px', padding: '24px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', marginBottom: '16px' }}>
-        <label style={{ fontSize: '13px', fontWeight: '700', color: '#333', display: 'block', marginBottom: '8px' }}>
-          Expiry Date
-        </label>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input
-            type="date"
-            style={{ padding: '9px 12px', border: '1.5px solid #ddd', borderRadius: '7px', fontSize: '14px', outline: 'none' }}
-            value={expiryDate}
-            min={new Date().toISOString().split('T')[0]}
-            onChange={e => { setExpiryDate(e.target.value); setGeneratedCode(''); setGenError('') }}
-          />
-          <button
-            style={{ padding: '9px 18px', background: '#006633', color: '#fff', border: 'none', borderRadius: '7px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
-            onClick={() => { if (!expiryDate) setExpiryDate(defaultExpiry()); else generate() }}
-          >
-            {expiryDate ? 'Generate Code' : 'Pick a date first'}
+      {/* Generate */}
+      <div style={{ background: '#fff', borderRadius: '10px', padding: '20px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', marginBottom: '20px' }}>
+        <div style={{ fontWeight: '700', fontSize: '14px', color: '#333', marginBottom: '14px' }}>Generate New 30-Day Code</div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '200px' }}>
+            <label style={ls.label}>Note (optional — e.g. student name or school)</label>
+            <input style={{ ...ls.input, width: '100%' }} placeholder="e.g. John Doe / School ABC"
+              value={note} onChange={e => setNote(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && generate()} />
+          </div>
+          <button style={ls.genBtn} onClick={generate} disabled={generating}>
+            {generating ? 'Generating…' : '+ Generate Code'}
           </button>
-          {expiryDate && (
-            <button
-              style={{ padding: '9px 14px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '7px', fontSize: '13px', cursor: 'pointer' }}
-              onClick={() => { setExpiryDate(defaultExpiry()); setGeneratedCode(''); setGenError('') }}
-            >
-              +7 days
-            </button>
-          )}
         </div>
-        {genError && <div style={{ color: '#cc0000', fontSize: '13px', marginTop: '8px' }}>{genError}</div>}
+        {genError && <div style={{ color: '#cc0000', fontSize: '12px', marginTop: '8px' }}>{genError}</div>}
       </div>
 
+      {/* Generated code display */}
       {generatedCode && (
-        <div style={{ background: '#f0fff4', border: '2px solid #006633', borderRadius: '10px', padding: '20px', textAlign: 'center' }}>
-          <div style={{ fontSize: '12px', color: '#666', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Activation Code</div>
-          <div style={{ fontSize: '28px', fontWeight: '900', letterSpacing: '4px', color: '#006633', fontFamily: 'monospace', marginBottom: '12px' }}>
-            {generatedCode}
-          </div>
-          <div style={{ fontSize: '12px', color: '#555', marginBottom: '14px' }}>
-            Valid until <strong>{expiryDate}</strong> — distribute this code to users
-          </div>
-          <button
-            style={{ padding: '9px 24px', background: '#006633', color: '#fff', border: 'none', borderRadius: '7px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
-            onClick={copyCode}
-          >
-            Copy Code
-          </button>
+        <div style={{ background: '#f0fff4', border: '2px solid #006633', borderRadius: '10px', padding: '20px', textAlign: 'center', marginBottom: '20px' }}>
+          <div style={{ fontSize: '11px', color: '#555', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px' }}>New Activation Code — Valid 30 Days</div>
+          <div style={{ fontSize: '32px', fontWeight: '900', letterSpacing: '5px', color: '#006633', fontFamily: 'monospace', marginBottom: '8px' }}>{generatedCode}</div>
+          <div style={{ fontSize: '12px', color: '#666', marginBottom: '16px' }}>Expires <strong>{generatedExpiry}</strong> · 1 device</div>
+          <button style={ls.genBtn} onClick={copyCode}>{copied ? '✓ Copied!' : 'Copy Code'}</button>
         </div>
       )}
+
+      {/* All licenses + activations */}
+      <div style={{ background: '#fff', borderRadius: '10px', padding: '20px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <div style={{ fontWeight: '700', fontSize: '14px', color: '#333' }}>
+            Issued Licenses <span style={{ fontWeight: '400', color: '#888', fontSize: '13px' }}>({licenses.length})</span>
+          </div>
+          <button style={ls.smallBtn} onClick={loadLicenses}>↻ Refresh</button>
+        </div>
+        {listError && <div style={{ color: '#888', fontSize: '13px', padding: '8px 0' }}>{listError}</div>}
+        {loadingList && <div style={{ color: '#888', fontSize: '13px' }}>Loading…</div>}
+        {!loadingList && licenses.length === 0 && !listError && (
+          <div style={{ color: '#aaa', fontSize: '13px' }}>No licenses issued yet.</div>
+        )}
+        {licenses.map(lic => {
+          const expired = new Date(lic.expiry) < new Date()
+          const activated = (lic.activations || []).length > 0
+          return (
+            <div key={lic.code} style={{ borderRadius: '8px', border: `1px solid ${expired ? '#ffcccc' : '#e0e0e0'}`, marginBottom: '8px', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: expired ? '#fff5f5' : '#f8f9fa', flexWrap: 'wrap' }}>
+                <code style={{ fontWeight: '700', fontSize: '13px', letterSpacing: '2px', color: expired ? '#cc0000' : '#006633' }}>{lic.code}</code>
+                <span style={{ fontSize: '12px', color: expired ? '#cc0000' : '#555' }}>{expired ? '⚠ expired' : `expires ${lic.expiry}`}</span>
+                <span style={{ fontSize: '12px', color: activated ? '#006633' : '#aaa' }}>
+                  {activated ? `✓ activated (${lic.activations.length} device)` : '○ not yet used'}
+                </span>
+                {lic.note && <span style={{ fontSize: '12px', color: '#888', fontStyle: 'italic', marginLeft: 'auto' }}>{lic.note}</span>}
+              </div>
+              {(lic.activations || []).map(act => (
+                <div key={act.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 14px', borderTop: '1px solid #f0f0f0', fontSize: '13px' }}>
+                  <span style={{ flex: 1, fontWeight: '600' }}>💻 {act.machine_name}</span>
+                  <span style={{ color: '#888', fontSize: '12px' }}>activated {new Date(act.activated_at).toLocaleDateString()}</span>
+                  <span style={{ color: '#aaa', fontSize: '12px' }}>last seen {new Date(act.last_seen).toLocaleDateString()}</span>
+                  <button
+                    style={{ padding: '3px 10px', background: '#fff0f0', color: '#cc0000', border: '1px solid #ffaaaa', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' }}
+                    onClick={() => revoke(act.id)} disabled={revoking === act.id}
+                  >
+                    {revoking === act.id ? '…' : 'Revoke'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
+}
+
+const ls = {
+  label: { display: 'block', fontSize: '12px', fontWeight: '600', color: '#555', marginBottom: '4px' },
+  input: { padding: '8px 10px', border: '1.5px solid #ddd', borderRadius: '6px', fontSize: '13px', outline: 'none', boxSizing: 'border-box' },
+  smallBtn: { padding: '7px 12px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', fontSize: '12px', cursor: 'pointer', fontWeight: '600' },
+  genBtn: { padding: '10px 22px', background: '#006633', color: '#fff', border: 'none', borderRadius: '7px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' },
 }
 
 export default function AdminScreen({ navigate, onLogout }) {
